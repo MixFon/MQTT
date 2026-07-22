@@ -1,6 +1,6 @@
 // Команда server — точка входа приложения.
-// На Этапе 1 поднимает подключение к TimescaleDB и применяет миграции;
-// MQTT-подписчик и HTTP API подключаются на последующих этапах.
+// Поднимает подключение к TimescaleDB, применяет миграции и запускает
+// MQTT-подписчик; HTTP API подключается на следующем этапе.
 package main
 
 import (
@@ -8,15 +8,20 @@ import (
 	"database/sql"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	_ "github.com/lib/pq"
 
 	"github.com/MixFon/MQTT/internal/config"
 	"github.com/MixFon/MQTT/internal/migrate"
+	"github.com/MixFon/MQTT/internal/mqtt"
+	"github.com/MixFon/MQTT/internal/storage"
 	"github.com/MixFon/MQTT/migrations"
 )
 
-// main читает конфиг, подключается к БД, применяет миграции и логирует результат.
+// main читает конфиг, подключается к БД, применяет миграции, запускает
+// MQTT-подписчик и ждёт сигнала завершения (SIGINT/SIGTERM) для остановки.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -26,6 +31,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	db, err := sql.Open("postgres", cfg.DatabaseURL)
 	if err != nil {
 		logger.Error("open database", "error", err)
@@ -33,7 +41,6 @@ func main() {
 	}
 	defer db.Close()
 
-	ctx := context.Background()
 	if err := db.PingContext(ctx); err != nil {
 		logger.Error("ping database", "error", err)
 		os.Exit(1)
@@ -44,5 +51,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("migrations applied", "http_addr", cfg.HTTPAddr)
+	store := storage.New(db)
+
+	subscriber := mqtt.New(mqtt.Config{
+		BrokerURL: cfg.MQTTBrokerURL,
+		Username:  cfg.MQTTUsername,
+		Password:  cfg.MQTTPassword,
+	}, logger, store.InsertReading)
+
+	if err := subscriber.Start(); err != nil {
+		logger.Error("start mqtt subscriber", "error", err)
+		os.Exit(1)
+	}
+	defer subscriber.Stop()
+
+	logger.Info("server started", "http_addr", cfg.HTTPAddr)
+
+	<-ctx.Done()
+	logger.Info("shutting down")
 }
