@@ -93,10 +93,11 @@ Go. Всё остальное — только stdlib.
       — `migrations/0001_enable_timescaledb.sql`
 
 ### Этап 2 — схема данных
-- [ ] Таблица `sensor_readings` (narrow-схема: `time, room, metric, value`) + `create_hypertable`
-- [ ] Индекс `(room, metric, time DESC)`
-- [ ] Retention policy на старые данные (если нужно ограничить хранение)
-- [ ] Миграции для схемы, без ручных `CREATE TABLE` в коде
+- [x] Таблица `sensor_readings` (narrow-схема: `time, room, metric, value`) + `create_hypertable`
+      — `migrations/0002_sensor_readings.sql`
+- [x] Индекс `(room, metric, time DESC)`
+- [ ] Retention policy на старые данные — отложено: срок хранения не определён (см. «Открытые вопросы»), добавится отдельной миграцией, когда решение будет принято
+- [x] Миграции для схемы, без ручных `CREATE TABLE` в коде
 
 ### Этап 3 — MQTT-подписчик
 - [ ] Пакет `internal/mqtt`: подключение с TLS, автопереподключение (`AutoReconnect`)
