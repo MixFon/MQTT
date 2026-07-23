@@ -83,6 +83,11 @@ Go. Всё остальное — только stdlib.
 
 ## План реализации
 
+Статус на 2026-07-23: Этапы 1–4 реализованы в коде (см. отметки `[x]` ниже).
+Изменения Этапа 4 (`internal/api`, обновлённый `cmd/server/main.go`) ещё не
+закоммичены в git — лежат в рабочей директории. Следующий шаг — Этап 5
+(визуализация).
+
 ### Этап 1 — окружение и инфраструктура
 - [x] `docker-compose.yml` с сервисами `mosquitto` и `timescaledb` для локальной разработки
 - [x] `mosquitto.conf`: включить TLS (локально можно самоподписанный сертификат) и `password_file`
@@ -109,12 +114,16 @@ Go. Всё остальное — только stdlib.
       — `topic == home/{room}/status` (Last Will online/offline) обрабатывается отдельно и не пишется в `sensor_readings`
 
 ### Этап 4 — REST API
-- [ ] Роутинг на `net/http.ServeMux` (Go 1.22+, без стороннего роутера)
-- [ ] `GET /api/readings?room=&metric=&from=&to=&interval=` — агрегация через `time_bucket`
-- [ ] `GET /api/latest?room=` — последние показания по всем метрикам комнаты
-- [ ] `GET /api/rooms` — список известных комнат (`SELECT DISTINCT room`)
-- [ ] `GET /api/metrics?room=` — список метрик, которые реально пишутся по комнате (`SELECT DISTINCT metric`) — так фронт узнаёт о новых датчиках сам, без хардкода
-- [ ] Валидация query-параметров, единообразные JSON-ошибки (`encoding/json`)
+- [x] Роутинг на `net/http.ServeMux` (Go 1.22+, без стороннего роутера)
+      — `internal/api/api.go`, подключён в `cmd/server/main.go` рядом с MQTT-подписчиком, с graceful shutdown по `ctx.Done()`
+- [x] `GET /api/readings?room=&metric=&from=&to=&interval=` — агрегация через `time_bucket`
+      — по умолчанию период — последние 24 часа, интервал — 5 минут; `interval` валидируется regexp'ом под формат Postgres INTERVAL
+- [x] `GET /api/latest?room=` — последние показания по всем метрикам комнаты
+      — `DISTINCT ON (metric) ... ORDER BY metric, time DESC`
+- [x] `GET /api/rooms` — список известных комнат (`SELECT DISTINCT room`)
+- [x] `GET /api/metrics?room=` — список метрик, которые реально пишутся по комнате (`SELECT DISTINCT metric`) — так фронт узнаёт о новых датчиках сам, без хардкода
+- [x] Валидация query-параметров, единообразные JSON-ошибки (`encoding/json`)
+      — `internal/api/response.go`: единый формат `{"error": "..."}`
 
 ### Этап 5 — визуализация
 - [ ] Grafana: datasource на TimescaleDB, базовый дашборд (time series + gauge)

@@ -1,4 +1,5 @@
 /.env
 /bin/
+/cmd/server/server
 /deploy/mosquitto/certs/
 /deploy/mosquitto/passwd

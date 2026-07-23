@@ -1,24 +1,32 @@
 // Команда server — точка входа приложения.
 // Поднимает подключение к TimescaleDB, применяет миграции и запускает
-// MQTT-подписчик; HTTP API подключается на следующем этапе.
+// MQTT-подписчик и HTTP REST API.
 package main
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	_ "github.com/lib/pq"
 
+	"github.com/MixFon/MQTT/internal/api"
 	"github.com/MixFon/MQTT/internal/config"
 	"github.com/MixFon/MQTT/internal/migrate"
 	"github.com/MixFon/MQTT/internal/mqtt"
 	"github.com/MixFon/MQTT/internal/storage"
 	"github.com/MixFon/MQTT/migrations"
 )
+
+// shutdownTimeout — время, отведённое HTTP-серверу на завершение текущих
+// запросов при остановке приложения.
+const shutdownTimeout = 5 * time.Second
 
 // main читает конфиг, подключается к БД, применяет миграции, запускает
 // MQTT-подписчик и ждёт сигнала завершения (SIGINT/SIGTERM) для остановки.
@@ -65,8 +73,24 @@ func main() {
 	}
 	defer subscriber.Stop()
 
-	logger.Info("server started", "http_addr", cfg.HTTPAddr)
+	httpServer := &http.Server{
+		Addr:    cfg.HTTPAddr,
+		Handler: api.New(store, logger).Router(),
+	}
+
+	go func() {
+		logger.Info("http server started", "addr", cfg.HTTPAddr)
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("http server", "error", err)
+		}
+	}()
 
 	<-ctx.Done()
 	logger.Info("shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error("shutdown http server", "error", err)
+	}
 }
