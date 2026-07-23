@@ -4,21 +4,113 @@
 на боевом сервере. Выполняется вручную, Claude доступа к VPS не имеет.
 
 Целевой сервер: Ubuntu 22.04, amd64, 1GB RAM.
-Домен: `iot.mrmixfon.ru` (поддомен — `mrmixfon.ru` настроен на другую машину).
+Домен: `mrmixfon.ru`.
 
 ## 1. DNS
 
 Добавить A-запись `iot.mrmixfon.ru` → IP этого VPS. Без неё Caddy не сможет
 выпустить TLS-сертификат через Let's Encrypt.
 
-## 2. Собрать и залить бинарник
+## 2. PostgreSQL + TimescaleDB
 
-Собирается локально (кросс-компиляция под Linux), не на самой VPS —
-на 1GB RAM сборка может быть медленной/упасть по памяти.
+`docker-compose.yml` в репозитории — только для локальной разработки (см.
+CLAUDE.md), на VPS БД ставится нативно через apt: меньше накладных расходов
+на 1GB RAM и не нужен отдельный докер-демон ради одного контейнера.
+
+```bash
+sudo apt install -y gnupg postgresql-common apt-transport-https lsb-release curl
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+curl -s https://packagecloud.io/install/repositories/timescale/timescaledb/script.deb.sh | sudo bash
+sudo apt install -y timescaledb-2-postgresql-16 postgresql-client-16
+
+sudo timescaledb-tune --quiet --yes   # подстраивает postgresql.conf под объём RAM
+sudo systemctl restart postgresql
+```
+
+Создать роль и базу для приложения:
+
+```bash
+sudo -u postgres psql -c "CREATE USER iot WITH PASSWORD '<сгенерировать пароль>';"
+sudo -u postgres psql -c "CREATE DATABASE iot OWNER iot;"
+sudo -u postgres psql -d iot -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+```
+
+Расширение создаётся здесь от имени `postgres`, потому что `CREATE EXTENSION`
+обычно требует прав суперпользователя, а роль `iot` их не имеет. Миграция
+`migrations/0001_enable_timescaledb.sql` использует `IF NOT EXISTS` и при
+старте приложения просто не найдёт работы — это ожидаемо, не ошибка.
+
+PostgreSQL на Ubuntu по умолчанию слушает только `localhost` — порт `5432`
+в фаерволе наружу открывать не нужно, приложение работает на этой же машине.
+`DATABASE_URL` для env-файла: `postgres://iot:<пароль>@localhost:5432/iot?sslmode=disable`.
+
+## 3. Mosquitto
+
+```bash
+sudo apt install -y mosquitto mosquitto-clients
+sudo systemctl stop mosquitto   # донастроим, прежде чем запускать
+```
+
+Сертификаты и файл паролей — тот же принцип, что в
+`deploy/mosquitto/gen-dev-certs.sh` для локальной разработки, но без Docker
+и с настоящим паролем вместо `changeme`:
+
+```bash
+sudo mkdir -p /etc/mosquitto/certs
+cd /etc/mosquitto/certs
+
+sudo openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+  -keyout ca.key -out ca.crt -subj "/CN=mqtt-ca"
+sudo openssl req -nodes -newkey rsa:2048 \
+  -keyout server.key -out server.csr -subj "/CN=iot.mrmixfon.ru"
+sudo openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key \
+  -CAcreateserial -out server.crt -days 3650
+sudo rm server.csr
+
+sudo mosquitto_passwd -c /etc/mosquitto/passwd iot   # ввести реальный пароль
+```
+
+`ca.crt` затем нужно зашить в прошивку ESP32 — брокер использует
+самоподписанный сертификат, устройство должно доверять именно этому CA.
+Публичный CA (Let's Encrypt и т.п.) здесь не нужен: устройства пинят
+конкретный сертификат, а не проверяют общий список доверенных корней.
+
+Конфиг (по образцу `deploy/mosquitto/mosquitto.conf`, пути адаптированы
+под нативную установку):
+
+```bash
+sudo tee /etc/mosquitto/conf.d/iot.conf >/dev/null <<'EOF'
+listener 8883
+protocol mqtt
+
+allow_anonymous false
+password_file /etc/mosquitto/passwd
+
+cafile /etc/mosquitto/certs/ca.crt
+certfile /etc/mosquitto/certs/server.crt
+keyfile /etc/mosquitto/certs/server.key
+EOF
+
+sudo systemctl enable --now mosquitto
+sudo systemctl status mosquitto
+```
+
+`MQTT_BROKER_URL` для env-файла: `tls://iot.mrmixfon.ru:8883`. Порт
+`8883/tcp` должен быть открыт в фаерволе снаружи — к нему подключаются
+ESP32 напрямую из Wi-Fi сети, не через Caddy (`sudo ufw allow 8883/tcp`).
+
+## 4. Собрать и залить бинарник и файлы деплоя
+
+Бинарник собирается локально (кросс-компиляция под Linux), не на самой VPS —
+на 1GB RAM сборка может быть медленной/упасть по памяти. Файлы из `deploy/`
+(env-шаблон, systemd unit, Caddyfile) на VPS сами по себе не появляются —
+их тоже нужно скопировать с локальной машины, иначе `cp` в шагах 6–8 ниже
+будет ссылаться на несуществующий путь.
 
 ```bash
 GOOS=linux GOARCH=amd64 go build -o server ./cmd/server
 scp server user@vps-host:/tmp/server
+scp -r deploy/systemd deploy/Caddyfile user@vps-host:/tmp/deploy-artifacts/
 ```
 
 На VPS:
@@ -29,41 +121,41 @@ sudo mv /tmp/server /opt/iot-backend/server
 sudo chmod +x /opt/iot-backend/server
 ```
 
-## 3. Системный пользователь
+## 5. Системный пользователь
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin iot-backend
 sudo chown -R iot-backend:iot-backend /opt/iot-backend
 ```
 
-## 4. Секреты (env-файл)
+## 6. Секреты (env-файл)
 
 ```bash
-sudo cp deploy/systemd/iot-backend.env.example /etc/iot-backend.env
+sudo cp /tmp/deploy-artifacts/systemd/iot-backend.env.example /etc/iot-backend.env
 sudo nano /etc/iot-backend.env   # заполнить реальные MQTT_PASSWORD, DATABASE_URL и т.д.
 sudo chown root:iot-backend /etc/iot-backend.env
 sudo chmod 640 /etc/iot-backend.env
 ```
 
-## 5. systemd unit
+## 7. systemd unit
 
 ```bash
-sudo cp deploy/systemd/iot-backend.service /etc/systemd/system/
+sudo cp /tmp/deploy-artifacts/systemd/iot-backend.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now iot-backend
 sudo systemctl status iot-backend
 journalctl -u iot-backend -f
 ```
 
-## 6. Caddy (reverse proxy)
+## 8. Caddy (reverse proxy)
 
 ```bash
 sudo apt install -y caddy   # если ещё не установлен
-sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+sudo cp /tmp/deploy-artifacts/Caddyfile /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
-Проверить: `https://iot.mrmixfon.ru/api/rooms` должен отвечать тем же, что
+Проверить: `https://mrmixfon.ru/api/rooms` должен отвечать тем же, что
 и `http://127.0.0.1:8080/api/rooms` на самом сервере.
 
 ## Обновление бинарника после изменений в коде
