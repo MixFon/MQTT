@@ -1,0 +1,27 @@
+[Unit]
+Description=IoT backend: MQTT subscriber + REST API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iot-backend
+Group=iot-backend
+WorkingDirectory=/opt/iot-backend
+EnvironmentFile=/etc/iot-backend.env
+ExecStart=/opt/iot-backend/server
+Restart=on-failure
+RestartSec=5
+
+# VPS с 1GB RAM — ограничиваем память, чтобы процесс не мог
+# занять её всю при аномалии (утечка, шторм сообщений и т.п.).
+MemoryMax=256M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/iot-backend
+
+[Install]
+WantedBy=multi-user.target
