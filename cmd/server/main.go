@@ -21,6 +21,7 @@ import (
 	"github.com/MixFon/MQTT/internal/migrate"
 	"github.com/MixFon/MQTT/internal/mqtt"
 	"github.com/MixFon/MQTT/internal/storage"
+	"github.com/MixFon/MQTT/internal/web"
 	"github.com/MixFon/MQTT/migrations"
 )
 
@@ -73,9 +74,16 @@ func main() {
 	}
 	defer subscriber.Stop()
 
+	mux := http.NewServeMux()
+	api.New(store, logger).Register(mux)
+	if err := web.Register(mux); err != nil {
+		logger.Error("register web dashboard", "error", err)
+		os.Exit(1)
+	}
+
 	httpServer := &http.Server{
 		Addr:    cfg.HTTPAddr,
-		Handler: api.New(store, logger).Router(),
+		Handler: mux,
 	}
 
 	go func() {

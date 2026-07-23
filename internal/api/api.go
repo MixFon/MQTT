@@ -20,12 +20,11 @@ func New(store *storage.Storage, logger *slog.Logger) *API {
 	return &API{store: store, logger: logger}
 }
 
-// Router собирает http.ServeMux со всеми маршрутами REST API.
-func (a *API) Router() http.Handler {
-	mux := http.NewServeMux()
+// Register добавляет маршруты REST API в общий mux (общий — чтобы в том же
+// mux можно было зарегистрировать раздачу статики фронтенда рядом, в main).
+func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/rooms", a.handleRooms)
 	mux.HandleFunc("GET /api/metrics", a.handleMetrics)
 	mux.HandleFunc("GET /api/latest", a.handleLatest)
 	mux.HandleFunc("GET /api/readings", a.handleReadings)
-	return mux
 }
