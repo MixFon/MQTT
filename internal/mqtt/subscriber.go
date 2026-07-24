@@ -4,8 +4,11 @@ package mqtt
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +32,10 @@ type Config struct {
 	BrokerURL string
 	Username  string
 	Password  string
+	// CACertFile — путь к PEM-файлу CA, которым подписан сертификат брокера.
+	// Брокер использует самоподписанный сертификат (см. deploy/mosquitto), поэтому
+	// системный пул доверенных корней его не примет — CA нужно прописать явно.
+	CACertFile string
 }
 
 // Handler обрабатывает одно распарсенное показание датчика (обычно — запись в БД).
@@ -43,7 +50,7 @@ type Subscriber struct {
 
 // New создаёт Subscriber и настраивает клиента с автопереподключением,
 // но не подключается к брокеру — для этого нужно вызвать Start.
-func New(cfg Config, logger *slog.Logger, handler Handler) *Subscriber {
+func New(cfg Config, logger *slog.Logger, handler Handler) (*Subscriber, error) {
 	s := &Subscriber{logger: logger, handler: handler}
 
 	opts := paho.NewClientOptions().
@@ -54,8 +61,33 @@ func New(cfg Config, logger *slog.Logger, handler Handler) *Subscriber {
 		SetOnConnectHandler(s.onConnect).
 		SetConnectionLostHandler(s.onConnectionLost)
 
+	if cfg.CACertFile != "" {
+		tlsConfig, err := caCertTLSConfig(cfg.CACertFile)
+		if err != nil {
+			return nil, fmt.Errorf("configure mqtt tls: %w", err)
+		}
+		opts.SetTLSConfig(tlsConfig)
+	}
+
 	s.client = paho.NewClient(opts)
-	return s
+	return s, nil
+}
+
+// caCertTLSConfig читает CA-сертификат из PEM-файла и собирает tls.Config,
+// который доверяет только ему — брокер использует самоподписанный сертификат,
+// системный пул доверенных корней его не содержит.
+func caCertTLSConfig(caCertFile string) (*tls.Config, error) {
+	pemBytes, err := os.ReadFile(caCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("read ca cert file %q: %w", caCertFile, err)
+	}
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pemBytes) {
+		return nil, fmt.Errorf("no valid certificates found in %q", caCertFile)
+	}
+
+	return &tls.Config{RootCAs: pool}, nil
 }
 
 // Start подключается к брокеру и блокируется до установления соединения (или ошибки).

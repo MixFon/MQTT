@@ -8,7 +8,7 @@
 
 ## 1. DNS
 
-Добавить A-запись `iot.mrmixfon.ru` → IP этого VPS. Без неё Caddy не сможет
+A-запись `mrmixfon.ru` → IP этого VPS настроена. Без нее Caddy не смог бы
 выпустить TLS-сертификат через Let's Encrypt.
 
 ## 2. PostgreSQL + TimescaleDB
@@ -62,13 +62,46 @@ cd /etc/mosquitto/certs
 sudo openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
   -keyout ca.key -out ca.crt -subj "/CN=mqtt-ca"
 sudo openssl req -nodes -newkey rsa:2048 \
-  -keyout server.key -out server.csr -subj "/CN=iot.mrmixfon.ru"
+  -keyout server.key -out server.csr -subj "/CN=mrmixfon.ru" \
+  -addext "subjectAltName=DNS:mrmixfon.ru"
+# -copy_extensions copy переносит subjectAltName из CSR в сертификат: Go 1.15+
+# при проверке TLS смотрит только на SAN, CN он больше не читает — без этой
+# опции клиент (Go-бэкенд, mosquitto_pub и т.д.) откажется доверять сертификату
+# даже с правильным CA.
 sudo openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key \
-  -CAcreateserial -out server.crt -days 3650
+  -CAcreateserial -out server.crt -days 3650 -copy_extensions copy
 sudo rm server.csr
 
 sudo mosquitto_passwd -c /etc/mosquitto/passwd iot   # ввести реальный пароль
 ```
+
+Mosquitto по умолчанию сбрасывает привилегии с root на системного пользователя
+`mosquitto` сразу после старта (даже если директива `user` не указана явно в
+конфиге — это встроенное значение по умолчанию), и уже от его имени читает
+TLS-сертификаты и `password_file`. Файлы выше созданы через `sudo` и принадлежат
+`root` с правами `600`/`644` — без явной раздачи прав группе `mosquitto` демон не
+сможет их открыть и упадёт с `Unable to load server key file ... Permission denied`
+в `/var/log/mosquitto/mosquitto.log` (в лог systemd эта ошибка не попадает, только
+в файл — см. `log_dest file` в `/etc/mosquitto/mosquitto.conf`). Поэтому сразу
+после генерации сертификатов и passwd-файла:
+
+```bash
+sudo chown -R root:mosquitto /etc/mosquitto/certs
+sudo chmod 755 /etc/mosquitto/certs
+
+sudo chmod 640 /etc/mosquitto/certs/server.key
+sudo chmod 644 /etc/mosquitto/certs/server.crt
+
+sudo chown root:mosquitto /etc/mosquitto/passwd
+sudo chmod 640 /etc/mosquitto/passwd
+```
+
+`ca.key` (нужен только для подписи будущих серверных сертификатов, демону в
+рантайме не требуется) можно оставить `600 root:root`. `ca.crt` — публичный
+сертификат, не секрет — оставляем ему дефолтные права `644 root:root` из
+`openssl`: его должен уметь прочитать не только `mosquitto`, но и сам
+Go-бэкенд (пользователь `iot-backend`, см. раздел 5), которому нужно доверять
+этому CA при подключении к брокеру — см. `MQTT_CA_CERT_FILE` в разделе 6.
 
 `ca.crt` затем нужно зашить в прошивку ESP32 — брокер использует
 самоподписанный сертификат, устройство должно доверять именно этому CA.
@@ -95,7 +128,13 @@ sudo systemctl enable --now mosquitto
 sudo systemctl status mosquitto
 ```
 
-`MQTT_BROKER_URL` для env-файла: `tls://iot.mrmixfon.ru:8883`. Порт
+`MQTT_BROKER_URL` для env-файла: `tls://mrmixfon.ru:8883` — обязательно домен,
+а не `localhost`: сертификат брокера выпущен на CN/SAN `mrmixfon.ru`, а Go 1.15+
+проверяет SAN сертификата против того хоста, к которому реально подключается
+клиент. `MQTT_CA_CERT_FILE` — `/etc/mosquitto/certs/ca.crt`, иначе Go-бэкенд
+не будет доверять самоподписанному сертификату. Оба уже подставлены как
+дефолтные значения в `deploy/systemd/iot-backend.env.example` — при
+редактировании `/etc/iot-backend.env` в разделе 6 их менять не нужно. Порт
 `8883/tcp` должен быть открыт в фаерволе снаружи — к нему подключаются
 ESP32 напрямую из Wi-Fi сети, не через Caddy (`sudo ufw allow 8883/tcp`).
 
@@ -132,7 +171,7 @@ sudo chown -R iot-backend:iot-backend /opt/iot-backend
 
 ```bash
 sudo cp /tmp/deploy-artifacts/systemd/iot-backend.env.example /etc/iot-backend.env
-sudo nano /etc/iot-backend.env   # заполнить реальные MQTT_PASSWORD, DATABASE_URL и т.д.
+sudo vim /etc/iot-backend.env   # заполнить реальные MQTT_PASSWORD, DATABASE_URL и т.д.
 sudo chown root:iot-backend /etc/iot-backend.env
 sudo chmod 640 /etc/iot-backend.env
 ```

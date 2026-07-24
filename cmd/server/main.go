@@ -62,11 +62,16 @@ func main() {
 
 	store := storage.New(db)
 
-	subscriber := mqtt.New(mqtt.Config{
-		BrokerURL: cfg.MQTTBrokerURL,
-		Username:  cfg.MQTTUsername,
-		Password:  cfg.MQTTPassword,
+	subscriber, err := mqtt.New(mqtt.Config{
+		BrokerURL:  cfg.MQTTBrokerURL,
+		Username:   cfg.MQTTUsername,
+		Password:   cfg.MQTTPassword,
+		CACertFile: cfg.MQTTCACertFile,
 	}, logger, store.InsertReading)
+	if err != nil {
+		logger.Error("configure mqtt subscriber", "error", err)
+		os.Exit(1)
+	}
 
 	if err := subscriber.Start(); err != nil {
 		logger.Error("start mqtt subscriber", "error", err)
