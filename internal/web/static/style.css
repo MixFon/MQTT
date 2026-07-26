@@ -1,35 +1,153 @@
 /* Макет самого дашборда поверх дизайн-системы Classical (theme.css).
-   Цвета, шрифты, отступы и радиусы — только через var(--...) из theme.css,
-   без своих значений, по правилам дизайн-системы (см. readme проекта Classical). */
+   Разметка карточек датчиков и gauge/спарклайн адаптированы из макета
+   design_handoff_mqtt_sensors/ (Датчики MQTT.html + mqtt-dashboard.js) —
+   алгоритм отрисовки перенесён как референс, источник данных заменён с
+   прямого MQTT-в-браузере на REST API проекта.
+   Цвета, шрифты, отступы и радиусы — только через var(--...) из theme.css. */
 
-main.page {
-  max-width: 960px;
+.app {
+  max-width: 1280px;
   margin: 0 auto;
-  padding: var(--space-6) var(--space-4) var(--space-8);
+  padding: 0 var(--space-6) var(--space-8);
 }
 
-#room-select {
-  width: auto;
-  min-width: 160px;
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) 0 var(--space-3);
+  flex-wrap: wrap;
 }
 
-#cards {
+.rooms {
+  display: flex;
+  flex-wrap: wrap;
+}
+.rooms .seg-opt {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.meta-line {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  font-feature-settings: "tnum" 1;
+}
+
+.empty {
+  padding: var(--space-8) 0;
+  text-align: center;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  border-top: 1px solid var(--color-divider);
+}
+.empty h3 { font-weight: 400; margin-bottom: var(--space-1); }
+
+.grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
   gap: var(--space-4);
 }
 
-#cards .card .value {
-  font-size: 32px;
+.sensor-card { gap: var(--space-3); }
+.sensor-card.offline { opacity: 0.55; }
+
+.card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.card-id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.card-id svg { flex: none; color: var(--color-accent-700); }
+.card-id .names { min-width: 0; }
+.card-id .card-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#cards .chart {
-  width: 100%;
-  height: 120px;
-  display: block;
-  margin-top: var(--space-1);
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex: none;
+}
+.status-tag .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
-.empty-state {
-  grid-column: 1 / -1;
+.gauge-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  max-width: 180px;
+}
+.gauge-wrap svg { width: 100%; height: auto; display: block; }
+.gauge-readout {
+  position: absolute;
+  top: 58%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  transform: translateY(-50%);
+}
+.gauge-readout .val {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 26px;
+  font-feature-settings: "tnum" 1;
+  line-height: 1;
+}
+.gauge-readout .unit {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.spark { width: 100%; height: 30px; display: block; margin-top: 2px; }
+
+.binary-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+.binary-state svg { color: var(--color-accent-700); }
+.binary-state .label {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 22px;
+}
+.binary-strip { display: flex; gap: 2px; height: 14px; }
+.binary-strip i { flex: 1; border-radius: 1px; background: var(--color-neutral-200); }
+.binary-strip i.on { background: var(--color-accent-300); }
+
+.card-meta { justify-content: space-between; }
+.card-meta .topic {
+  font-feature-settings: normal;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 560px) {
+  .toolbar { flex-direction: column; align-items: flex-start; }
 }
