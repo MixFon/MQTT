@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Датчик — Показания датчиков</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="back-link nav-brand" href="/">← Показания датчиков</a>
+</nav>
+<div class="app">
+  <div class="detail-head" id="detail-head"></div>
+  <div class="detail-controls">
+    <div class="seg" id="range-tabs"></div>
+    <div class="custom-range hidden" id="custom-range">
+      <div class="field"><label for="from-input">С</label><input type="datetime-local" id="from-input" class="input"></div>
+      <div class="field"><label for="to-input">По</label><input type="datetime-local" id="to-input" class="input"></div>
+      <button type="button" class="btn btn-secondary" id="apply-range">Показать</button>
+    </div>
+    <div class="field">
+      <label for="interval-select">Шаг</label>
+      <select id="interval-select" class="input"></select>
+    </div>
+  </div>
+  <canvas id="detail-chart"></canvas>
+  <p class="detail-status text-muted" id="detail-status"></p>
+</div>
+<script src="/metrics.js"></script>
+<script src="/sensor.js"></script>
+</body>
+</html>
