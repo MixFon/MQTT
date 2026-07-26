@@ -8,8 +8,8 @@ import "time"
 // значение и момент получения. Metric — открытое множество, новый тип
 // датчика не требует изменений в этой структуре.
 type Reading struct {
-	Room   string
-	Metric string
-	Value  float64
-	Time   time.Time
+	Room   string    `json:"room"`
+	Metric string    `json:"metric"`
+	Value  float64   `json:"value"`
+	Time   time.Time `json:"time"`
 }

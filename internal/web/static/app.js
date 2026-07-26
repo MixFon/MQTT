@@ -32,7 +32,7 @@ async function loadRooms() {
   }
 
   if (rooms.length === 0) {
-    cardsEl.innerHTML = '<p>Показаний ещё не поступало.</p>';
+    cardsEl.innerHTML = '<p class="empty-state text-muted">Показаний ещё не поступало.</p>';
     return;
   }
 
@@ -51,15 +51,17 @@ async function loadRoom(room) {
   await refreshRoom();
 }
 
-// buildCard создаёт разметку карточки одной метрики: текущее значение и график.
+// buildCard создаёт разметку карточки одной метрики: текущее значение и график,
+// оформленную по классам дизайн-системы (card-kicker — название метрики,
+// card-title — текущее значение).
 function buildCard(metric) {
   const card = document.createElement('section');
-  card.className = 'card';
+  card.className = 'card elev-sm';
   card.dataset.metric = metric;
   card.innerHTML = `
-    <h2>${metric}</h2>
-    <div class="value">—</div>
-    <canvas width="320" height="120"></canvas>
+    <div class="card-kicker">${metric}</div>
+    <div class="card-title value">—</div>
+    <canvas class="chart" width="320" height="120"></canvas>
   `;
   return card;
 }
@@ -117,7 +119,7 @@ function drawChart(canvas, buckets) {
       ctx.lineTo(x, y);
     }
   });
-  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-accent');
   ctx.lineWidth = 2;
   ctx.stroke();
 }
