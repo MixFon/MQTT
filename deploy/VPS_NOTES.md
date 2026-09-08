@@ -6,6 +6,12 @@
 
 Сервер: Ubuntu 22.04, amd64, 1GB RAM. Домен `mrmixfon.ru`.
 
+Сентябрь 2026: сервис переехал на новый VPS — старый IP заблокировали по
+ТСПУ. Домен и все данные (БД, сертификаты Mosquitto) перенесены на новый
+сервер, ESP32 переподключились сами, без перепрошивки — см.
+`deploy/VPS_MIGRATION.md` и `deploy/migrate.sh` для деталей самого переноса.
+Новый сервер — тоже Ubuntu 22.04/1GB RAM, у хостинг-провайдера `ruweb.place`.
+
 ## Что установлено
 
 | Компонент             | Как установлен      | Роль |
@@ -44,7 +50,21 @@ MQTT_PASSWORD=<секрет>
 MQTT_CA_CERT_FILE=/etc/mosquitto/certs/ca.crt
 DATABASE_URL=postgres://iot:<секрет>@localhost:5432/iot?sslmode=disable
 HTTP_ADDR=127.0.0.1:8080
+TELEGRAM_BOT_TOKEN=<секрет>
+TELEGRAM_CHAT_ID=<id чата/пользователя>
+ALERT_CHECK_INTERVAL=1m
+ALERT_OFFLINE_AFTER=3m
+ALERT_THRESHOLDS=temperature::30,humidity:20:80
 ```
+
+`ALERT_THRESHOLDS` — список `metric:min:max` через запятую, граница может быть
+пустой (не ограничена). В примере выше: `temperature` алертит только выше 30
+(нижняя граница не задана), `humidity` — вне диапазона 20–80.
+
+Алерты (offline датчика, выход показания за порог) уходят в Telegram — см.
+`internal/alert` и раздел «Этап 7» в `CLAUDE.md`. Если `TELEGRAM_BOT_TOKEN`/
+`TELEGRAM_CHAT_ID` пустые, фоновая проверка не запускается и в логах при
+старте будет строка `alert checker disabled`.
 
 ## Команды управления
 
@@ -57,6 +77,7 @@ sudo systemctl restart iot-backend
 sudo systemctl status iot-backend
 journalctl -u iot-backend -f          # логи в реальном времени
 journalctl -u iot-backend -n 200      # последние 200 строк
+journalctl -u iot-backend -f | grep -i alert   # только события алертов (offline/пороги)
 ```
 
 ### Mosquitto (MQTT-брокер)
@@ -120,3 +141,12 @@ ssh user@vps-host 'sudo systemctl stop iot-backend && \
 - Порты `80`/`443` открыты для Caddy (HTTP→HTTPS редирект и TLS).
 - Grafana в этот стек пока не входит — разворачивается отдельно, в Caddy не
   проксирована.
+- **Telegram-алерты не работают с этого сервера** (хостинг в РФ):
+  `api.telegram.org` недоступен на сетевом уровне (`dial tcp ...:443: i/o
+  timeout`, IPv6-маршрут вообще недостижим, `ufw` тут ни при чём — проверено
+  `curl` напрямую). Фоновая проверка (`internal/alert`) при этом продолжает
+  работать и пытается слать уведомления при каждом переходе состояния — в
+  логах `journalctl -u iot-backend` будут регулярные ошибки `send telegram
+  request: ... i/o timeout`, это ожидаемо, не признак поломки самого сервиса.
+  Чтобы алерты снова заработали, нужен прокси для исходящих запросов к
+  Telegram API — не сделано.

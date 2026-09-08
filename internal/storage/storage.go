@@ -103,6 +103,35 @@ func (s *Storage) Latest(ctx context.Context, room string) ([]sensor.Reading, er
 	return readings, nil
 }
 
+// LatestAll возвращает последнее показание по каждой паре (комната, метрика)
+// во всех комнатах — используется фоновой проверкой алертов, чтобы не опрашивать
+// комнаты по одной.
+func (s *Storage) LatestAll(ctx context.Context) ([]sensor.Reading, error) {
+	const stmt = `
+		SELECT DISTINCT ON (room, metric) time, room, metric, value
+		FROM sensor_readings
+		ORDER BY room, metric, time DESC`
+
+	rows, err := s.db.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, fmt.Errorf("query latest readings: %w", err)
+	}
+	defer rows.Close()
+
+	readings := []sensor.Reading{}
+	for rows.Next() {
+		var r sensor.Reading
+		if err := rows.Scan(&r.Time, &r.Room, &r.Metric, &r.Value); err != nil {
+			return nil, fmt.Errorf("scan reading: %w", err)
+		}
+		readings = append(readings, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate readings: %w", err)
+	}
+	return readings, nil
+}
+
 // Rooms возвращает список комнат, по которым есть хотя бы одно показание.
 func (s *Storage) Rooms(ctx context.Context) ([]string, error) {
 	const stmt = `SELECT DISTINCT room FROM sensor_readings ORDER BY room`

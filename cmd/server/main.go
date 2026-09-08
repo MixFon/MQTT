@@ -16,6 +16,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/MixFon/MQTT/internal/alert"
 	"github.com/MixFon/MQTT/internal/api"
 	"github.com/MixFon/MQTT/internal/config"
 	"github.com/MixFon/MQTT/internal/migrate"
@@ -78,6 +79,26 @@ func main() {
 		os.Exit(1)
 	}
 	defer subscriber.Stop()
+
+	thresholds, err := alert.ParseThresholds(cfg.AlertThresholdsRaw)
+	if err != nil {
+		logger.Error("parse alert thresholds", "error", err)
+		os.Exit(1)
+	}
+
+	if cfg.TelegramBotToken != "" && cfg.TelegramChatID != "" {
+		notifier := alert.NewTelegramNotifier(cfg.TelegramBotToken, cfg.TelegramChatID)
+		checker := alert.New(alert.Config{
+			CheckInterval: cfg.AlertCheckInterval,
+			OfflineAfter:  cfg.AlertOfflineAfter,
+			Thresholds:    thresholds,
+		}, store, notifier, logger)
+		go checker.Run(ctx)
+		logger.Info("alert checker started",
+			"check_interval", cfg.AlertCheckInterval, "offline_after", cfg.AlertOfflineAfter)
+	} else {
+		logger.Info("alert checker disabled: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set")
+	}
 
 	mux := http.NewServeMux()
 	api.New(store, logger).Register(mux)
