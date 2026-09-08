@@ -121,6 +121,25 @@ mosquitto_sub -h localhost -p 8883 --cafile /etc/mosquitto/certs/ca.crt \
   -u iot -P <пароль> -t 'home/#' -v      # проверить, что показания идут
 ```
 
+## Диагностика: iot-backend в busy-restart-loop
+
+`iot-backend` не ретраит подключение к MQTT-брокеру внутри себя при старте —
+если на момент запуска брокер недоступен (mosquitto потушен, не тот
+сертификат и т.п.), процесс сразу завершается с `exit 1`, а `systemd`
+перезапускает его заново (`restart counter` в статусе быстро растёт).
+Выглядит как загадочный краш-луп, а причина почти всегда простая:
+
+```bash
+journalctl -u iot-backend -n 50 --no-pager | grep -i mqtt
+# ищем что-то вроде:
+# error="connect to mqtt broker: network Error : dial tcp ...:8883: connect: connection refused"
+```
+
+Если видите такую строку — проверьте `mosquitto`:
+`sudo systemctl status mosquitto`, `tail -f /var/log/mosquitto/mosquitto.log`.
+После того как брокер поднят, `iot-backend` подключается на следующей
+попытке рестарта сам, вручную перезапускать не обязательно.
+
 ## Обновление бинарника после изменений в коде
 
 Собирается локально (кросс-компиляция), не на самой VPS — см. `VPS_DEPLOY.md`,
