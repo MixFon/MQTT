@@ -87,7 +87,11 @@ func main() {
 	}
 
 	if cfg.TelegramBotToken != "" && cfg.TelegramChatID != "" {
-		notifier := alert.NewTelegramNotifier(cfg.TelegramBotToken, cfg.TelegramChatID)
+		notifier, err := alert.NewTelegramNotifier(cfg.TelegramBotToken, cfg.TelegramChatID, cfg.TelegramProxyURL)
+		if err != nil {
+			logger.Error("configure telegram notifier", "error", err)
+			os.Exit(1)
+		}
 		checker := alert.New(alert.Config{
 			CheckInterval: cfg.AlertCheckInterval,
 			OfflineAfter:  cfg.AlertOfflineAfter,

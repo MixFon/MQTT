@@ -64,8 +64,11 @@ Go. Всё остальное — только stdlib.
 ```
 .
 ├── cmd/
-│   └── server/
-│       └── main.go            # точка входа: поднимает MQTT-подписчик + HTTP-сервер
+│   ├── server/
+│   │   └── main.go            # точка входа: поднимает MQTT-подписчик + HTTP-сервер
+│   └── telegram-proxy/
+│       └── main.go            # отдельный бинарник: forward-прокси для Telegram Bot API,
+│                               # деплоится на OpenVPN-сервер, а не на iot-backend VPS
 ├── internal/
 │   ├── config/                # чтение env-переменных
 │   ├── mqtt/                  # подключение к брокеру, подписка, парсинг payload
@@ -77,7 +80,8 @@ Go. Всё остальное — только stdlib.
 ├── migrations/                # SQL-миграции, применяются самописным раннером через embed.FS
 ├── deploy/
 │   ├── mosquitto.conf          # конфиг брокера
-│   └── systemd/                # unit-файлы для systemd на VPS
+│   ├── systemd/                # unit-файлы для systemd на VPS
+│   └── telegram-proxy/         # unit + env-шаблон для telegram-proxy (деплой на OpenVPN-сервер)
 ├── docker-compose.yml          # локальный стенд: mosquitto + timescaledb
 ├── .env.example
 └── CLAUDE.md
@@ -85,14 +89,19 @@ Go. Всё остальное — только stdlib.
 
 ## План реализации
 
-Статус на 2026-09-08: Этапы 1–7 реализованы и закоммичены. В сентябре 2026
+Статус на 2026-09-09: Этапы 1–7 реализованы и закоммичены. В сентябре 2026
 бэкенд перенесён на новый VPS (старый IP заблокировал ТСПУ) — см.
 `deploy/VPS_MIGRATION.md` и `deploy/migrate.sh`; домен `mrmixfon.ru` тот же,
 ESP32 переподключились сами, без перепрошивки. `TELEGRAM_BOT_TOKEN`/
 `TELEGRAM_CHAT_ID` на новом сервере заданы, но сами уведомления не уходят —
 `api.telegram.org` недоступен с этого VPS на сетевом уровне (хостинг в РФ),
-см. «На заметку» в `deploy/VPS_NOTES.md`. Нужен прокси для исходящих запросов
-к Telegram API, чтобы алерты снова заработали — не сделано.
+см. «На заметку» в `deploy/VPS_NOTES.md`.
+
+Решение — прокси на стороне OpenVPN-сервера пользователя (он не в РФ,
+Telegram оттуда доступен): код готов (`cmd/telegram-proxy`,
+`internal/alert/telegram.go`, `TELEGRAM_PROXY_URL` в конфиге), см. «Этап 7».
+Деплой (бинарник + systemd на OpenVPN-сервере, `.ovpn`-клиент для VPS,
+секреты в `/etc/iot-backend.env`) — не сделано, пользователь делает сам.
 
 ### Этап 1 — окружение и инфраструктура
 - [x] `docker-compose.yml` с сервисами `mosquitto` и `timescaledb` для локальной разработки
@@ -166,6 +175,25 @@ ESP32 переподключились сами, без перепрошивки
       (Grafana alerting как альтернатива/дополнение через сами дашборды — не реализовано,
       рассматривалось и отклонено в пользу решения в своём коде, см. принцип минимума
       зависимостей и общий подход проекта)
+- [x] Обход блокировки Telegram в РФ (VPS не может достучаться до `api.telegram.org`
+      напрямую — см. `deploy/VPS_NOTES.md`): запросы `internal/alert/telegram.go` идут
+      через HTTP(S)-прокси, если задан `TELEGRAM_PROXY_URL` (`net/http` сам поднимает
+      CONNECT-туннель и Proxy-Authorization из userinfo в URL — без своего кода на
+      стороне клиента)
+      — прокси — отдельный минимальный бинарник `cmd/telegram-proxy` (только
+      `net`/`net/http`/`bufio`): принимает только `CONNECT` на порт 443, хост должен быть
+      в аллоулисте (`PROXY_ALLOWED_HOSTS`, по умолчанию `api.telegram.org`), проверяет
+      пароль в `Proxy-Authorization: Basic` (`PROXY_TOKEN`, `crypto/subtle` для
+      constant-time сравнения) — токен обязателен, т.к. в VPN-сети пользователя есть
+      другие клиенты, прокси не должен быть для них открытым релеем; дальше просто
+      прокидывает байты TLS-сессии, не терминируя её
+      — деплоится НЕ на iot-backend VPS, а на машину с OpenVPN-сервером пользователя
+      (она физически не в РФ, доступ к Telegram есть) — `deploy/telegram-proxy/`
+      (systemd unit + env-шаблон)
+      — [ ] сам деплой (сборка + systemd на OpenVPN-сервере, `.ovpn`-клиент с
+      split-tunnel для iot-backend VPS без `redirect-gateway`, секреты в
+      `/etc/iot-backend.env` и `/etc/telegram-proxy.env`) — не сделано, руками
+      пользователя, см. чек-лист в `deploy/VPS_NOTES.md`
 
 ## Модель данных
 
@@ -217,9 +245,16 @@ QoS: 1 (at-least-once) достаточно для показаний датчи
 | `HTTP_ADDR`        | `:8080`                              | адрес REST API           |
 | `TELEGRAM_BOT_TOKEN`| —                                    | токен бота для алертов (секрет); пусто — алерты выключены |
 | `TELEGRAM_CHAT_ID`  | —                                     | id чата/пользователя для алертов; пусто — алерты выключены |
+| `TELEGRAM_PROXY_URL` | `http://iot:secret@10.8.0.1:3128`   | HTTP(S)-прокси для запросов к Telegram Bot API через OpenVPN (см. Этап 7, `cmd/telegram-proxy`); пусто — напрямую |
 | `ALERT_CHECK_INTERVAL` | `1m`                              | как часто проверять показания на offline/пороги |
 | `ALERT_OFFLINE_AFTER`  | `3m`                              | через сколько без новых показаний метрика считается offline |
 | `ALERT_THRESHOLDS` | `temperature::30,humidity:20:80`     | пороги по метрикам `metric:min:max`, граница может быть пустой |
+
+`cmd/telegram-proxy` — отдельный бинарник со своим конфигом (не читает `.env` iot-backend,
+деплоится на другой сервер): `PROXY_LISTEN_ADDR` (адрес VPN-интерфейса, например
+`10.8.0.1:3128`), `PROXY_ALLOWED_HOSTS` (через запятую, по умолчанию `api.telegram.org`),
+`PROXY_TOKEN` (обязателен, общий секрет — пароль в `TELEGRAM_PROXY_URL` выше). Шаблон —
+`deploy/telegram-proxy/telegram-proxy.env.example`.
 
 `.env` — только для локальной разработки, в `.gitignore`. На VPS — через systemd
 `Environment=` или отдельный env-файл вне репозитория (тот же подход, что уже

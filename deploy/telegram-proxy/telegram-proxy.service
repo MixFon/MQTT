@@ -1,0 +1,25 @@
+[Unit]
+Description=Telegram forward proxy for iot-backend (обход блокировки Telegram в РФ через OpenVPN)
+# Ставится на машину с OpenVPN-сервером, НЕ на iot-backend VPS.
+# Замени openvpn-server@<instance>.service на имя реального юнита сервера,
+# если хочешь явную зависимость по старту — не обязательно, просто удобно.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telegram-proxy
+Group=telegram-proxy
+WorkingDirectory=/opt/telegram-proxy
+EnvironmentFile=/etc/telegram-proxy.env
+ExecStart=/opt/telegram-proxy/telegram-proxy
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

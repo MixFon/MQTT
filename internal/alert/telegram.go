@@ -23,12 +23,28 @@ type TelegramNotifier struct {
 // NewTelegramNotifier создаёт TelegramNotifier для бота botToken, отправляющий
 // сообщения в чат chatID (id пользователя или группы, который узнают у @userinfobot
 // либо из ответа getUpdates после первого сообщения боту).
-func NewTelegramNotifier(botToken, chatID string) *TelegramNotifier {
+//
+// Если proxyURL не пустой, запросы к Telegram Bot API идут через HTTP(S)-прокси
+// по этому адресу вместо прямого соединения — нужно, когда сам сервер не имеет
+// сетевого доступа к api.telegram.org (например, блокировка в РФ), а прокси
+// поднят на другой стороне VPN-туннеля (см. cmd/telegram-proxy). Формат:
+// "http://логин:токен@host:port" — логин и токен net/http сам добавит в
+// заголовок Proxy-Authorization при установке CONNECT-туннеля.
+func NewTelegramNotifier(botToken, chatID, proxyURL string) (*TelegramNotifier, error) {
+	client := &http.Client{}
+	if proxyURL != "" {
+		u, err := url.Parse(proxyURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse telegram proxy url: %w", err)
+		}
+		client.Transport = &http.Transport{Proxy: http.ProxyURL(u)}
+	}
+
 	return &TelegramNotifier{
 		botToken: botToken,
 		chatID:   chatID,
-		client:   &http.Client{},
-	}
+		client:   client,
+	}, nil
 }
 
 // Notify отправляет message в чат c.chatID методом sendMessage Telegram Bot API.

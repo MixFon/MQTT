@@ -167,5 +167,12 @@ ssh user@vps-host 'sudo systemctl stop iot-backend && \
   работать и пытается слать уведомления при каждом переходе состояния — в
   логах `journalctl -u iot-backend` будут регулярные ошибки `send telegram
   request: ... i/o timeout`, это ожидаемо, не признак поломки самого сервиса.
-  Чтобы алерты снова заработали, нужен прокси для исходящих запросов к
-  Telegram API — не сделано.
+
+  Код готов, деплой — нет: запросы к Telegram теперь можно пустить через
+  прокси на OpenVPN-сервере (он не в РФ, у него доступ к Telegram есть) —
+  `cmd/telegram-proxy` + `deploy/telegram-proxy/`, включается переменной
+  `TELEGRAM_PROXY_URL` в `/etc/iot-backend.env`. См. CLAUDE.md, раздел
+  «Этап 7». Осталось руками: собрать и залить бинарник `telegram-proxy` на
+  OpenVPN-сервер, поднять там systemd unit, сгенерировать/использовать
+  `.ovpn`-клиент для этого VPS (split-tunnel, без `redirect-gateway`) и
+  прописать `TELEGRAM_PROXY_URL`/`TELEGRAM_BOT_TOKEN` в `/etc/iot-backend.env`.

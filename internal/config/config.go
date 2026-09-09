@@ -21,6 +21,10 @@ type Config struct {
 	// Если хотя бы одна пустая, фоновая проверка алертов не запускается (см. main.go).
 	TelegramBotToken string
 	TelegramChatID   string
+	// TelegramProxyURL — адрес HTTP(S)-прокси для запросов к Telegram Bot API
+	// (см. internal/alert.NewTelegramNotifier и cmd/telegram-proxy). Пустая
+	// строка — запросы идут напрямую, без прокси.
+	TelegramProxyURL string
 	// AlertCheckInterval — как часто проверять показания на offline и превышение порогов.
 	AlertCheckInterval time.Duration
 	// AlertOfflineAfter — через сколько времени без новых показаний метрика считается offline.
@@ -42,6 +46,7 @@ func Load() (Config, error) {
 		HTTPAddr:           os.Getenv("HTTP_ADDR"),
 		TelegramBotToken:   os.Getenv("TELEGRAM_BOT_TOKEN"),
 		TelegramChatID:     os.Getenv("TELEGRAM_CHAT_ID"),
+		TelegramProxyURL:   os.Getenv("TELEGRAM_PROXY_URL"),
 		AlertThresholdsRaw: os.Getenv("ALERT_THRESHOLDS"),
 	}
 
