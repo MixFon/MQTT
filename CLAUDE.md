@@ -89,19 +89,19 @@ Go. Всё остальное — только stdlib.
 
 ## План реализации
 
-Статус на 2026-09-09: Этапы 1–7 реализованы и закоммичены. В сентябре 2026
-бэкенд перенесён на новый VPS (старый IP заблокировал ТСПУ) — см.
+Статус на 2026-09-10: Этапы 1–7 реализованы, закоммичены и полностью
+задеплоены, включая обход блокировки Telegram. В сентябре 2026 бэкенд
+перенесён на новый VPS (старый IP заблокировал ТСПУ) — см.
 `deploy/VPS_MIGRATION.md` и `deploy/migrate.sh`; домен `mrmixfon.ru` тот же,
-ESP32 переподключились сами, без перепрошивки. `TELEGRAM_BOT_TOKEN`/
-`TELEGRAM_CHAT_ID` на новом сервере заданы, но сами уведомления не уходят —
-`api.telegram.org` недоступен с этого VPS на сетевом уровне (хостинг в РФ),
-см. «На заметку» в `deploy/VPS_NOTES.md`.
+ESP32 переподключились сами, без перепрошивки.
 
-Решение — прокси на стороне OpenVPN-сервера пользователя (он не в РФ,
-Telegram оттуда доступен): код готов (`cmd/telegram-proxy`,
-`internal/alert/telegram.go`, `TELEGRAM_PROXY_URL` в конфиге), см. «Этап 7».
-Деплой (бинарник + systemd на OpenVPN-сервере, `.ovpn`-клиент для VPS,
-секреты в `/etc/iot-backend.env`) — не сделано, пользователь делает сам.
+Обход блокировки Telegram в РФ (см. «На заметку» в `deploy/VPS_NOTES.md`)
+доведён до конца: `telegram-proxy` развёрнут и работает на сервере
+пользователя с OpenVPN, `.ovpn`-клиент со split-tunnel (`route-nopull` +
+`route` на VPN-подсеть, без `redirect-gateway`) поднят на iot-backend VPS,
+`TELEGRAM_PROXY_URL` прописан в `/etc/iot-backend.env` — алерты реально
+доходят до Telegram, проверено на выходе показания за порог. Инструкция —
+`deploy/TELEGRAM_PROXY_DEPLOY.md`, автоматизация — `deploy/deploy-telegram-proxy.sh`.
 
 ### Этап 1 — окружение и инфраструктура
 - [x] `docker-compose.yml` с сервисами `mosquitto` и `timescaledb` для локальной разработки
@@ -190,10 +190,19 @@ Telegram оттуда доступен): код готов (`cmd/telegram-proxy`
       — деплоится НЕ на iot-backend VPS, а на машину с OpenVPN-сервером пользователя
       (она физически не в РФ, доступ к Telegram есть) — `deploy/telegram-proxy/`
       (systemd unit + env-шаблон)
-      — [ ] сам деплой (сборка + systemd на OpenVPN-сервере, `.ovpn`-клиент с
+      — [x] сам деплой (сборка + systemd на OpenVPN-сервере, `.ovpn`-клиент с
       split-tunnel для iot-backend VPS без `redirect-gateway`, секреты в
-      `/etc/iot-backend.env` и `/etc/telegram-proxy.env`) — не сделано, руками
-      пользователя, см. чек-лист в `deploy/VPS_NOTES.md`
+      `/etc/iot-backend.env` и `/etc/telegram-proxy.env`) — выполнено 2026-09-10;
+      полная инструкция — `deploy/TELEGRAM_PROXY_DEPLOY.md`, повторяемая часть
+      (сборка бинарника + заливка + systemd) автоматизирована скриптом
+      `deploy/deploy-telegram-proxy.sh` (по образцу `deploy/deploy.sh`); сетевая
+      настройка (`.ovpn`-клиент) и секреты (`PROXY_TOKEN`) скрипт сознательно
+      не трогает — это делается руками один раз.
+      Попутно найдено при деплое: firewall (`ufw`) на сервере с OpenVPN по
+      умолчанию блокирует входящие (`deny incoming`) — порт `telegram-proxy`
+      нужно явно разрешить только для `tun0`/VPN-подсети:
+      `sudo ufw allow in on tun0 to any port 3128 proto tcp` (не открывать
+      порт наружу целиком — иначе прокси станет виден всему интернету)
 
 ## Модель данных
 

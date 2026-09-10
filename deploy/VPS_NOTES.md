@@ -160,19 +160,25 @@ ssh user@vps-host 'sudo systemctl stop iot-backend && \
 - Порты `80`/`443` открыты для Caddy (HTTP→HTTPS редирект и TLS).
 - Grafana в этот стек пока не входит — разворачивается отдельно, в Caddy не
   проксирована.
-- **Telegram-алерты не работают с этого сервера** (хостинг в РФ):
+- **Telegram-алерты** с этого сервера напрямую не работают (хостинг в РФ):
   `api.telegram.org` недоступен на сетевом уровне (`dial tcp ...:443: i/o
   timeout`, IPv6-маршрут вообще недостижим, `ufw` тут ни при чём — проверено
-  `curl` напрямую). Фоновая проверка (`internal/alert`) при этом продолжает
-  работать и пытается слать уведомления при каждом переходе состояния — в
-  логах `journalctl -u iot-backend` будут регулярные ошибки `send telegram
-  request: ... i/o timeout`, это ожидаемо, не признак поломки самого сервиса.
+  `curl` напрямую). Решено с 2026-09-10: запросы идут через `telegram-proxy`
+  на сервере пользователя с OpenVPN (он не в РФ) — `TELEGRAM_PROXY_URL` в
+  `/etc/iot-backend.env`, само подключение — OpenVPN-клиент на этом VPS
+  (split-tunnel, без `redirect-gateway`). Уведомления реально доставляются,
+  проверено на срабатывании порога. Подробная инструкция и troubleshooting —
+  `deploy/TELEGRAM_PROXY_DEPLOY.md`.
 
-  Код готов, деплой — нет: запросы к Telegram теперь можно пустить через
-  прокси на OpenVPN-сервере (он не в РФ, у него доступ к Telegram есть) —
-  `cmd/telegram-proxy` + `deploy/telegram-proxy/`, включается переменной
-  `TELEGRAM_PROXY_URL` в `/etc/iot-backend.env`. См. CLAUDE.md, раздел
-  «Этап 7». Осталось руками: собрать и залить бинарник `telegram-proxy` на
-  OpenVPN-сервер, поднять там systemd unit, сгенерировать/использовать
-  `.ovpn`-клиент для этого VPS (split-tunnel, без `redirect-gateway`) и
-  прописать `TELEGRAM_PROXY_URL`/`TELEGRAM_BOT_TOKEN` в `/etc/iot-backend.env`.
+  Если ошибки `send telegram request: ... i/o timeout` снова появились в
+  `journalctl -u iot-backend` — вероятные причины (по опыту первого деплоя):
+  1. На VPS не поднят/упал OpenVPN-клиент — `ip addr show tun0` должен
+     показывать адрес из VPN-подсети, `ping` до адреса `telegram-proxy` должен
+     отвечать.
+  2. `telegram-proxy` не работает на стороне OpenVPN-сервера — там же
+     `systemctl status telegram-proxy`.
+  3. Задеплоен бинарник `iot-backend` без поддержки `TELEGRAM_PROXY_URL` —
+     проверить дату сборки/передеплоить `./deploy/deploy.sh`, убедиться, что
+     переменная реально есть в `/etc/iot-backend.env` (не в аналогичном файле
+     на другом сервере — важно не перепутать хосты при `./deploy/deploy.sh`
+     и `./deploy/deploy-telegram-proxy.sh`, у них разные цели).
